@@ -1,6 +1,6 @@
 /*
 ** Common definitions for the JIT compiler.
-** Copyright (C) 2005-2022 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2025 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #ifndef _LJ_JIT_H
@@ -67,6 +67,46 @@
 #endif
 #endif
 
+#elif LJ_TARGET_RISCV64
+
+#define JIT_F_RVC		(JIT_F_CPU << 0)
+#define JIT_F_RVZba		(JIT_F_CPU << 1)
+#define JIT_F_RVZbb		(JIT_F_CPU << 2)
+#define JIT_F_RVZicond		(JIT_F_CPU << 3)
+#define JIT_F_RVZfa		(JIT_F_CPU << 4)
+#define JIT_F_RVXThead		(JIT_F_CPU << 5)
+
+#define JIT_F_CPUSTRING		"\003RVC\003Zba\003Zbb\006Zicond\003Zfa\006XThead"
+
+#if LJ_TARGET_LINUX
+#include <sys/syscall.h>
+
+#ifndef __NR_riscv_hwprobe
+#ifndef __NR_arch_specific_syscall
+#define __NR_arch_specific_syscall 244
+#endif
+#define __NR_riscv_hwprobe (__NR_arch_specific_syscall + 14)
+#endif
+
+struct riscv_hwprobe {
+    int64_t key;
+    uint64_t value;
+};
+
+#define RISCV_HWPROBE_KEY_MVENDORID     0
+#define RISCV_HWPROBE_KEY_MARCHID       1
+#define RISCV_HWPROBE_KEY_MIMPID        2
+#define RISCV_HWPROBE_KEY_BASE_BEHAVIOR 3
+#define RISCV_HWPROBE_KEY_IMA_EXT_0     4
+
+#define RISCV_HWPROBE_IMA_C      (1 << 1)
+#define RISCV_HWPROBE_EXT_ZBA    (1 << 3)
+#define RISCV_HWPROBE_EXT_ZBB    (1 << 4)
+#define RISCV_HWPROBE_EXT_ZFA    (1ULL << 32)
+#define RISCV_HWPROBE_EXT_ZICOND (1ULL << 35)
+
+#endif
+
 #else
 
 #define JIT_F_CPUSTRING		""
@@ -105,7 +145,7 @@
 /* -- JIT engine parameters ----------------------------------------------- */
 
 #if LJ_TARGET_WINDOWS || LJ_64
-/* See: http://blogs.msdn.com/oldnewthing/archive/2003/10/08/55239.aspx */
+/* See: https://devblogs.microsoft.com/oldnewthing/20031008-00/?p=42223 */
 #define JIT_P_sizemcode_DEFAULT		64
 #else
 /* Could go as low as 4K, but the mmap() overhead would be rather high. */
@@ -273,6 +313,9 @@ typedef struct GCtrace {
   BCIns startins;	/* Original bytecode of starting instruction. */
   MSize szmcode;	/* Size of machine code. */
   MCode *mcode;		/* Start of machine code. */
+#if LJ_ABI_PAUTH
+  ASMFunction mcauth;	/* Start of machine code, with ptr auth applied. */
+#endif
   MSize mcloop;		/* Offset of loop start in machine code. */
   uint16_t nchild;	/* Number of child traces (root trace only). */
   uint16_t spadjust;	/* Stack pointer adjustment (offset in bytes). */
@@ -457,8 +500,8 @@ typedef struct jit_State {
 #endif
 
   IRIns *irbuf;		/* Temp. IR instruction buffer. Biased with REF_BIAS. */
-  IRRef irtoplim;	/* Upper limit of instuction buffer (biased). */
-  IRRef irbotlim;	/* Lower limit of instuction buffer (biased). */
+  IRRef irtoplim;	/* Upper limit of instruction buffer (biased). */
+  IRRef irbotlim;	/* Lower limit of instruction buffer (biased). */
   IRRef loopref;	/* Last loop reference or ref of final LOOP (or 0). */
 
   MSize sizesnap;	/* Size of temp. snapshot buffer. */

@@ -1,6 +1,6 @@
 /*
 ** FFI C call handling.
-** Copyright (C) 2005-2022 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2025 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #ifndef _LJ_CCALL_H
@@ -75,6 +75,9 @@ typedef union FPRArg {
 #define CCALL_NARG_FPR		8
 #define CCALL_NRET_FPR		4
 #define CCALL_SPS_FREE		0
+#if LJ_TARGET_OSX
+#define CCALL_PACK_STACKARG	1
+#endif
 
 typedef intptr_t GPRArg;
 typedef union FPRArg {
@@ -126,6 +129,21 @@ typedef union FPRArg {
   struct { LJ_ENDIAN_LOHI(float f; , float g;) };
 } FPRArg;
 
+#elif LJ_TARGET_RISCV64
+
+#define CCALL_NARG_GPR		8
+#define CCALL_NARG_FPR		8
+#define CCALL_NRET_GPR		2
+#define CCALL_NRET_FPR		2
+#define CCALL_SPS_EXTRA		3
+#define CCALL_SPS_FREE		1
+
+typedef intptr_t GPRArg;
+typedef union FPRArg {
+  double d;
+  struct { LJ_ENDIAN_LOHI(float f; , float g;) };
+} FPRArg;
+
 #else
 #error "Missing calling convention definitions for this architecture"
 #endif
@@ -138,6 +156,9 @@ typedef union FPRArg {
 #endif
 #ifndef CCALL_ALIGN_STACKARG
 #define CCALL_ALIGN_STACKARG	1
+#endif
+#ifndef CCALL_PACK_STACKARG
+#define CCALL_PACK_STACKARG	0
 #endif
 #ifndef CCALL_ALIGN_CALLSTATE
 #define CCALL_ALIGN_CALLSTATE	8
@@ -152,14 +173,15 @@ typedef union FPRArg {
 LJ_STATIC_ASSERT(CCALL_NUM_GPR <= CCALL_MAX_GPR);
 LJ_STATIC_ASSERT(CCALL_NUM_FPR <= CCALL_MAX_FPR);
 
-#define CCALL_MAXSTACK		32
+#define CCALL_NUM_STACK		31
+#define CCALL_SIZE_STACK	(CCALL_NUM_STACK * CTSIZE_PTR)
 
 /* -- C call state -------------------------------------------------------- */
 
 typedef LJ_ALIGN(CCALL_ALIGN_CALLSTATE) struct CCallState {
   void (*func)(void);		/* Pointer to called function. */
   uint32_t spadj;		/* Stack pointer adjustment. */
-  uint8_t nsp;			/* Number of stack slots. */
+  uint8_t nsp;			/* Number of bytes on stack. */
   uint8_t retref;		/* Return value by reference. */
 #if LJ_TARGET_X64
   uint8_t ngpr;			/* Number of arguments in GPRs. */
@@ -168,7 +190,7 @@ typedef LJ_ALIGN(CCALL_ALIGN_CALLSTATE) struct CCallState {
   uint8_t resx87;		/* Result on x87 stack: 1:float, 2:double. */
 #elif LJ_TARGET_ARM64
   void *retp;			/* Aggregate return pointer in x8. */
-#elif LJ_TARGET_PPC
+#elif LJ_TARGET_PPC || LJ_TARGET_RISCV64
   uint8_t nfpr;			/* Number of arguments in FPRs. */
 #endif
 #if LJ_32
@@ -178,7 +200,7 @@ typedef LJ_ALIGN(CCALL_ALIGN_CALLSTATE) struct CCallState {
   FPRArg fpr[CCALL_NUM_FPR];	/* Arguments/results in FPRs. */
 #endif
   GPRArg gpr[CCALL_NUM_GPR];	/* Arguments/results in GPRs. */
-  GPRArg stack[CCALL_MAXSTACK];	/* Stack slots. */
+  GPRArg stack[CCALL_NUM_STACK];	/* Stack slots. */
 } CCallState;
 
 /* -- C call handling ----------------------------------------------------- */

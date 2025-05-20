@@ -365,7 +365,7 @@ static void *CALL_MREMAP_(void *ptr, size_t osz, size_t nsz, int flags)
 #define CALL_MREMAP(addr, osz, nsz, mv) CALL_MREMAP_((addr), (osz), (nsz), (mv))
 #define CALL_MREMAP_NOMOVE	0
 #define CALL_MREMAP_MAYMOVE	1
-#if LJ_64 && (!LJ_GC64 || LJ_TARGET_ARM64)
+#if LJ_64 && (!LJ_GC64 || LJ_TARGET_ARM64 || LJ_TARGET_RISCV64)
 #define CALL_MREMAP_MV		CALL_MREMAP_NOMOVE
 #else
 #define CALL_MREMAP_MV		CALL_MREMAP_MAYMOVE
@@ -1057,7 +1057,7 @@ static size_t release_unused_segments(mstate m)
       mchunkptr p = align_as_chunk(base);
       size_t psize = chunksize(p);
       /* Can unmap if first chunk holds entire segment and not pinned */
-      if (!cinuse(p) && (char *)p + psize >= base + size - TOP_FOOT_SIZE) {
+      if (!cinuse(p) && (char *)p + psize == (char *)mem2chunk(sp)) {
 	tchunkptr tp = (tchunkptr)p;
 	if (p == m->dv) {
 	  m->dv = 0;

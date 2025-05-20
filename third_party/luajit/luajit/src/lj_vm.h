@@ -1,6 +1,6 @@
 /*
 ** Assembler VM interface definitions.
-** Copyright (C) 2005-2022 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2025 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #ifndef _LJ_VM_H
@@ -37,6 +37,9 @@ LJ_ASMF int lj_vm_cpuid(uint32_t f, uint32_t res[4]);
 #if LJ_TARGET_PPC
 void lj_vm_cachesync(void *start, void *end);
 #endif
+#if LJ_TARGET_RISCV64
+void lj_vm_fence_rw_rw();
+#endif
 LJ_ASMF double lj_vm_foldarith(double x, double y, int op);
 #if LJ_HASJIT
 LJ_ASMF double lj_vm_foldfpm(double x, int op);
@@ -54,8 +57,8 @@ LJ_ASMF void lj_vm_profhook(void);
 LJ_ASMF void lj_vm_IITERN(void);
 
 /* Trace exit handling. */
-LJ_ASMF void lj_vm_exit_handler(void);
-LJ_ASMF void lj_vm_exit_interp(void);
+LJ_ASMF char lj_vm_exit_handler[];
+LJ_ASMF char lj_vm_exit_interp[];
 
 /* Internal math helper functions. */
 #if LJ_TARGET_PPC || LJ_TARGET_ARM64 || (LJ_TARGET_MIPS && LJ_ABI_SOFTFP)
@@ -111,6 +114,6 @@ LJ_ASMF void lj_cont_stitch(void);  /* Trace stitching. */
 LJ_ASMF char lj_vm_asm_begin[];
 
 /* Bytecode offsets are relative to lj_vm_asm_begin. */
-#define makeasmfunc(ofs)	((ASMFunction)(lj_vm_asm_begin + (ofs)))
+#define makeasmfunc(ofs) lj_ptr_sign((ASMFunction)(lj_vm_asm_begin + (ofs)), 0)
 
 #endif

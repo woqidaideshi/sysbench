@@ -1,6 +1,6 @@
 /*
 ** JIT library.
-** Copyright (C) 2005-2022 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2025 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #define lib_jit_c
@@ -161,24 +161,6 @@ LJLIB_PUSH(top-2) LJLIB_SET(version)
 
 /* -- Reflection API for Lua functions ------------------------------------ */
 
-/* Return prototype of first argument (Lua function or prototype object) */
-static GCproto *check_Lproto(lua_State *L, int nolua)
-{
-  TValue *o = L->base;
-  if (L->top > o) {
-    if (tvisproto(o)) {
-      return protoV(o);
-    } else if (tvisfunc(o)) {
-      if (isluafunc(funcV(o)))
-	return funcproto(funcV(o));
-      else if (nolua)
-	return NULL;
-    }
-  }
-  lj_err_argt(L, 1, LUA_TFUNCTION);
-  return NULL;  /* unreachable */
-}
-
 static void setintfield(lua_State *L, GCtab *t, const char *name, int32_t val)
 {
   setintV(lj_tab_setstr(L, t, lj_str_newz(L, name)), val);
@@ -187,7 +169,7 @@ static void setintfield(lua_State *L, GCtab *t, const char *name, int32_t val)
 /* local info = jit.util.funcinfo(func [,pc]) */
 LJLIB_CF(jit_util_funcinfo)
 {
-  GCproto *pt = check_Lproto(L, 1);
+  GCproto *pt = lj_lib_checkLproto(L, 1, 1);
   if (pt) {
     BCPos pc = (BCPos)lj_lib_optint(L, 2, 0);
     GCtab *t;
@@ -229,7 +211,7 @@ LJLIB_CF(jit_util_funcinfo)
 /* local ins, m = jit.util.funcbc(func, pc) */
 LJLIB_CF(jit_util_funcbc)
 {
-  GCproto *pt = check_Lproto(L, 0);
+  GCproto *pt = lj_lib_checkLproto(L, 1, 0);
   BCPos pc = (BCPos)lj_lib_checkint(L, 2);
   if (pc < pt->sizebc) {
     BCIns ins = proto_bc(pt)[pc];
@@ -246,7 +228,7 @@ LJLIB_CF(jit_util_funcbc)
 /* local k = jit.util.funck(func, idx) */
 LJLIB_CF(jit_util_funck)
 {
-  GCproto *pt = check_Lproto(L, 0);
+  GCproto *pt = lj_lib_checkLproto(L, 1, 0);
   ptrdiff_t idx = (ptrdiff_t)lj_lib_checkint(L, 2);
   if (idx >= 0) {
     if (idx < (ptrdiff_t)pt->sizekn) {
@@ -266,7 +248,7 @@ LJLIB_CF(jit_util_funck)
 /* local name = jit.util.funcuvname(func, idx) */
 LJLIB_CF(jit_util_funcuvname)
 {
-  GCproto *pt = check_Lproto(L, 0);
+  GCproto *pt = lj_lib_checkLproto(L, 1, 0);
   uint32_t idx = (uint32_t)lj_lib_checkint(L, 2);
   if (idx < pt->sizeuv) {
     setstrV(L, L->top-1, lj_str_newz(L, lj_debug_uvname(pt, idx)));
@@ -422,7 +404,8 @@ LJLIB_CF(jit_util_ircalladdr)
 {
   uint32_t idx = (uint32_t)lj_lib_checkint(L, 1);
   if (idx < IRCALL__MAX) {
-    setintptrV(L->top-1, (intptr_t)(void *)lj_ir_callinfo[idx].func);
+    ASMFunction func = lj_ir_callinfo[idx].func;
+    setintptrV(L->top-1, (intptr_t)(void *)lj_ptr_strip(func));
     return 1;
   }
   return 0;
@@ -648,6 +631,104 @@ JIT_PARAMDEF(JIT_PARAMINIT)
 #include <sys/utsname.h>
 #endif
 
+#if LJ_TARGET_RISCV64 && LJ_TARGET_POSIX
+
+#if LJ_TARGET_LINUX
+#include <unistd.h>
+
+struct riscv_hwprobe hwprobe_requests[] = {
+	{RISCV_HWPROBE_KEY_IMA_EXT_0}
+};
+
+const uint64_t *hwprobe_ext = &hwprobe_requests[0].value;
+
+int hwprobe_ret = 0;
+#endif
+
+static int riscv_compressed()
+{
+#if defined(__riscv_c) || defined(__riscv_compressed)
+  /* Don't bother checking for RVC -- would crash before getting here. */
+  return 1;
+#elif LJ_TARGET_LINUX
+  return (hwprobe_ret == 0 && ((*hwprobe_ext) & RISCV_HWPROBE_IMA_C)) ? 1 : 0;
+#else
+  return 0;
+#endif
+}
+
+static int riscv_zba()
+{
+#if defined(__riscv_b) || defined(__riscv_zba)
+  /* Don't bother checking for Zba -- would crash before getting here. */
+  return 1;
+#elif LJ_TARGET_LINUX
+  return (hwprobe_ret == 0 && ((*hwprobe_ext) & RISCV_HWPROBE_EXT_ZBA)) ? 1 : 0;
+#else
+  return 0;
+#endif
+}
+
+static int riscv_zbb()
+{
+#if defined(__riscv_b) || defined(__riscv_zbb)
+  /* Don't bother checking for Zbb -- would crash before getting here. */
+  return 1;
+#elif LJ_TARGET_LINUX
+  return (hwprobe_ret == 0 && ((*hwprobe_ext) & RISCV_HWPROBE_EXT_ZBB)) ? 1 : 0;
+#else
+  return 0;
+#endif
+}
+
+static int riscv_zicond()
+{
+#if defined(__riscv_zicond)
+  /* Don't bother checking for Zicond -- would crash before getting here. */
+  return 1;
+#elif LJ_TARGET_LINUX
+  return (hwprobe_ret == 0 && ((*hwprobe_ext) & RISCV_HWPROBE_EXT_ZICOND)) ? 1 : 0;
+#else
+  return 0;
+#endif
+}
+
+static int riscv_zfa()
+{
+#if defined(__riscv_zfa)
+  /* Don't bother checking for Zfa -- would crash before getting here. */
+  return 1;
+#elif LJ_TARGET_LINUX
+  return (hwprobe_ret == 0 && ((*hwprobe_ext) & RISCV_HWPROBE_EXT_ZFA)) ? 1 : 0;
+#else
+  return 0;
+#endif
+}
+
+static int riscv_xthead()
+{
+#if (defined(__riscv_xtheadba) \
+  && defined(__riscv_xtheadbb) \
+  && defined(__riscv_xtheadcondmov) \
+  && defined(__riscv_xtheadmac))
+  /* Don't bother checking for XThead -- would crash before getting here. */
+  return 1;
+#else
+/*
+** Hardcoded as there's no easy way of detection:
+** - SIGILL have some trouble with libluajit as we speak
+** - Checking mvendorid looks good, but might not be reliable.
+*/
+  return 0;
+#endif
+}
+
+static uint32_t riscv_probe(int (*func)(void), uint32_t flag)
+{
+    return func() ? flag : 0;
+}
+#endif
+
 /* Arch-dependent CPU feature detection. */
 static uint32_t jit_cpudetect(void)
 {
@@ -719,6 +800,28 @@ static uint32_t jit_cpudetect(void)
   }
 #endif
 
+#elif LJ_TARGET_RISCV64
+#if LJ_HASJIT
+
+#if LJ_TARGET_LINUX
+  /* HWPROBE-based detection of RVC, Zba, Zbb and Zicond. */
+  hwprobe_ret = syscall(__NR_riscv_hwprobe, &hwprobe_requests,
+                sizeof(hwprobe_requests) / sizeof(struct riscv_hwprobe), 0,
+			          NULL, 0);
+
+  flags |= riscv_probe(riscv_compressed, JIT_F_RVC);
+  flags |= riscv_probe(riscv_zba, JIT_F_RVZba);
+  flags |= riscv_probe(riscv_zbb, JIT_F_RVZbb);
+  flags |= riscv_probe(riscv_zicond, JIT_F_RVZicond);
+  flags |= riscv_probe(riscv_zfa, JIT_F_RVZfa);
+  flags |= riscv_probe(riscv_xthead, JIT_F_RVXThead);
+
+#endif
+
+  /* Detect V/P? */
+  /* V have no hardware available, P not ratified yet. */
+#endif
+
 #else
 #error "Missing CPU detection for this architecture"
 #endif
@@ -742,7 +845,7 @@ LUALIB_API int luaopen_jit(lua_State *L)
 #endif
   lua_pushliteral(L, LJ_OS_NAME);
   lua_pushliteral(L, LJ_ARCH_NAME);
-  lua_pushinteger(L, LUAJIT_VERSION_NUM);
+  lua_pushinteger(L, LUAJIT_VERSION_NUM);  /* Deprecated. */
   lua_pushliteral(L, LUAJIT_VERSION);
   LJ_LIB_REG(L, LUA_JITLIBNAME, jit);
 #if LJ_HASPROFILE
