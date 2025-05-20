@@ -366,7 +366,7 @@ ck_rhs_map_create(struct ck_rhs *hs, unsigned long entries)
 	map->probe_limit = (unsigned int)limit;
 	map->probe_maximum = 0;
 	map->capacity = n_entries;
-	map->step = ck_internal_bsf(n_entries);
+	map->step = ck_cc_ffsl(n_entries);
 	map->mask = n_entries - 1;
 	map->n_entries = 0;
 
@@ -914,6 +914,8 @@ ck_rhs_put_robin_hood(struct ck_rhs *hs,
 	long prev;
 	void *key;
 	long prevs[CK_RHS_MAX_RH];
+	int prev_probes[CK_RHS_MAX_RH];
+	long last_slot = -1;
 	unsigned int prevs_nb = 0;
 	unsigned int i;
 
@@ -938,8 +940,13 @@ restart:
 		if (ck_rhs_grow(hs, map->capacity << 1) == false) {
 			desc->in_rh = false;
 
-			for (i = 0; i < prevs_nb; i++)
+			for (i = 0; i < prevs_nb; i++) {
+				if (i > 0)
+					ck_rhs_set_probes(map, prevs[i], prev_probes[i - 1]);
 				ck_rhs_unset_rh(map, prevs[i]);
+			}
+			if (last_slot != -1)
+				ck_rhs_set_probes(map, last_slot, prev_probes[prevs_nb - 1]);
 
 			return -1;
 		}
@@ -951,10 +958,13 @@ restart:
 		desc = ck_rhs_desc(map, first);
 		int old_probes = desc->probes;
 
+		last_slot = first;
+
 		desc->probes = n_probes;
 		h = ck_rhs_get_first_offset(map, first, n_probes);
 		ck_rhs_map_bound_set(map, h, n_probes);
 		prev = orig_slot;
+		prev_probes[prevs_nb] = old_probes;
 		prevs[prevs_nb++] = prev;
 		n_probes = old_probes;
 		goto restart;
@@ -1135,7 +1145,7 @@ ck_rhs_apply(struct ck_rhs *hs,
     void *cl)
 {
 	const void *insert;
-	const void  *object, *delta = false;
+	const void  *object, *delta = NULL;
 	unsigned long n_probes;
 	long slot, first;
 	struct ck_rhs_map *map;

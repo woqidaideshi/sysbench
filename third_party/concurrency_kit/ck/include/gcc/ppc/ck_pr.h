@@ -67,21 +67,29 @@ ck_pr_stall(void)
 		__asm__ __volatile__(I ::: "memory");   \
 	}
 
-CK_PR_FENCE(atomic, "lwsync")
-CK_PR_FENCE(atomic_store, "lwsync")
+#ifdef CK_MD_PPC32_LWSYNC
+#define CK_PR_LWSYNCOP "lwsync"
+#else /* CK_MD_PPC32_LWSYNC_DISABLE */
+#define CK_PR_LWSYNCOP "sync"
+#endif
+
+CK_PR_FENCE(atomic, CK_PR_LWSYNCOP)
+CK_PR_FENCE(atomic_store, CK_PR_LWSYNCOP)
 CK_PR_FENCE(atomic_load, "sync")
-CK_PR_FENCE(store_atomic, "lwsync")
-CK_PR_FENCE(load_atomic, "lwsync")
-CK_PR_FENCE(store, "lwsync")
+CK_PR_FENCE(store_atomic, CK_PR_LWSYNCOP)
+CK_PR_FENCE(load_atomic, CK_PR_LWSYNCOP)
+CK_PR_FENCE(store, CK_PR_LWSYNCOP)
 CK_PR_FENCE(store_load, "sync")
-CK_PR_FENCE(load, "lwsync")
-CK_PR_FENCE(load_store, "lwsync")
+CK_PR_FENCE(load, CK_PR_LWSYNCOP)
+CK_PR_FENCE(load_store, CK_PR_LWSYNCOP)
 CK_PR_FENCE(memory, "sync")
-CK_PR_FENCE(acquire, "lwsync")
-CK_PR_FENCE(release, "lwsync")
-CK_PR_FENCE(acqrel, "lwsync")
-CK_PR_FENCE(lock, "lwsync")
-CK_PR_FENCE(unlock, "lwsync")
+CK_PR_FENCE(acquire, CK_PR_LWSYNCOP)
+CK_PR_FENCE(release, CK_PR_LWSYNCOP)
+CK_PR_FENCE(acqrel, CK_PR_LWSYNCOP)
+CK_PR_FENCE(lock, CK_PR_LWSYNCOP)
+CK_PR_FENCE(unlock, CK_PR_LWSYNCOP)
+
+#undef CK_PR_LWSYNCOP
 
 #undef CK_PR_FENCE
 
@@ -143,7 +151,7 @@ CK_PR_STORE_S(char, char, "stb")
 	ck_pr_cas_##N##_value(M *target, T compare, T set, M *value)	\
 	{								\
 		T previous;						\
-		__asm__ __volatile__("1:"				\
+		__asm__ __volatile__("1:;"				\
 				     "lwarx %0, 0, %1;"			\
 				     "cmpw  0, %0, %3;"			\
 				     "bne-  2f;"			\
@@ -162,7 +170,7 @@ CK_PR_STORE_S(char, char, "stb")
 	ck_pr_cas_##N(M *target, T compare, T set)			\
 	{								\
 		T previous;						\
-		__asm__ __volatile__("1:"				\
+		__asm__ __volatile__("1:;"				\
 				     "lwarx %0, 0, %1;"			\
 				     "cmpw  0, %0, %3;"			\
 				     "bne-  2f;"			\
@@ -191,7 +199,7 @@ CK_PR_CAS_S(int, int)
 	ck_pr_fas_##N(M *target, T v)				\
 	{							\
 		T previous;					\
-		__asm__ __volatile__("1:"			\
+		__asm__ __volatile__("1:;"			\
 				     "l" W "arx %0, 0, %1;"	\
 				     "st" W "cx. %2, 0, %1;"	\
 				     "bne- 1b;"			\
@@ -214,7 +222,7 @@ CK_PR_FAS(uint, unsigned int, unsigned int, "w")
 	ck_pr_##O##_##N(M *target)				\
 	{							\
 		T previous;					\
-		__asm__ __volatile__("1:"			\
+		__asm__ __volatile__("1:;"			\
 				     "l" W "arx %0, 0, %1;"	\
 				      I ";"			\
 				     "st" W "cx. %0, 0, %1;"	\
@@ -248,7 +256,7 @@ CK_PR_UNARY_S(int, int, "w")
 	ck_pr_##O##_##N(M *target, T delta)			\
 	{							\
 		T previous;					\
-		__asm__ __volatile__("1:"			\
+		__asm__ __volatile__("1:;"			\
 				     "l" W "arx %0, 0, %1;"	\
 				      I " %0, %2, %0;"		\
 				     "st" W "cx. %0, 0, %1;"	\
@@ -285,7 +293,7 @@ ck_pr_faa_ptr(void *target, uintptr_t delta)
 {
 	uintptr_t previous, r;
 
-	__asm__ __volatile__("1:"
+	__asm__ __volatile__("1:;"
 			     "lwarx %0, 0, %2;"
 			     "add %1, %3, %0;"
 			     "stwcx. %1, 0, %2;"
@@ -304,7 +312,7 @@ ck_pr_faa_ptr(void *target, uintptr_t delta)
 	ck_pr_faa_##S(T *target, T delta)				\
 	{								\
 		T previous, r;						\
-		__asm__ __volatile__("1:"				\
+		__asm__ __volatile__("1:;"				\
 				     "l" W "arx %0, 0, %2;"		\
 				     "add %1, %3, %0;"			\
 				     "st" W "cx. %1, 0, %2;"		\

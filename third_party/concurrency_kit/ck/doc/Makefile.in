@@ -142,6 +142,9 @@ OBJECTS=CK_ARRAY_FOREACH		\
 	ck_pr_fence_store		\
 	ck_pr_fence_store_atomic	\
 	ck_pr_fence_store_load		\
+	ck_pr_fence_lock		\
+	ck_pr_fence_unlock		\
+	ck_pr_fence_acqrel		\
 	ck_pr_stall			\
 	ck_pr_faa			\
 	ck_pr_inc			\
@@ -206,7 +209,7 @@ refcheck:
 
 install:
 	mkdir -p $(DESTDIR)/$(MANDIR)/man3 || exit
-	cp *$(GZIP_SUFFIX) $(DESTDIR)/$(MANDIR)/man3 || exit
+	cp -p *$(GZIP_SUFFIX) $(DESTDIR)/$(MANDIR)/man3 || exit
 
 uninstall:
 	for target in $(OBJECTS); do 			  \

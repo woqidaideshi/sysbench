@@ -58,8 +58,8 @@
 #endif
 
 /*
- * Prevent speculative execution in busy-wait loops (P4 <=)
- * or "predefined delay".
+ * Prevent speculative execution in busy-wait loops (P4 <=) or "predefined
+ * delay".
  */
 CK_CC_INLINE static void
 ck_pr_stall(void)
@@ -75,18 +75,39 @@ ck_pr_stall(void)
 		__asm__ __volatile__(I ::: "memory");	\
 	}
 
-CK_PR_FENCE(atomic, "sfence")
-CK_PR_FENCE(atomic_store, "sfence")
-CK_PR_FENCE(atomic_load, "mfence")
-CK_PR_FENCE(store_atomic, "sfence")
-CK_PR_FENCE(load_atomic, "mfence")
+/* Atomic operations are always serializing. */
+CK_PR_FENCE(atomic, "")
+CK_PR_FENCE(atomic_store, "")
+CK_PR_FENCE(atomic_load, "")
+CK_PR_FENCE(store_atomic, "")
+CK_PR_FENCE(load_atomic, "")
+
+/* Traditional fence interface. */
 CK_PR_FENCE(load, "lfence")
 CK_PR_FENCE(load_store, "mfence")
 CK_PR_FENCE(store, "sfence")
 CK_PR_FENCE(store_load, "mfence")
 CK_PR_FENCE(memory, "mfence")
+
+/* Below are stdatomic-style fences. */
+
+/*
+ * Provides load-store and store-store ordering. However, Intel specifies that
+ * the WC memory model is relaxed. It is likely an sfence *is* sufficient (in
+ * particular, stores are not re-ordered with respect to prior loads and it is
+ * really just the stores that are subject to re-ordering). However, we take
+ * the conservative route as the manuals are too ambiguous for my taste.
+ */
 CK_PR_FENCE(release, "mfence")
+
+/*
+ * Provides load-load and load-store ordering. The lfence instruction ensures
+ * all prior load operations are complete before any subsequent instructions
+ * actually begin execution. However, the manual also ends up going to describe
+ * WC memory as a relaxed model.
+ */
 CK_PR_FENCE(acquire, "mfence")
+
 CK_PR_FENCE(acqrel, "mfence")
 CK_PR_FENCE(lock, "mfence")
 CK_PR_FENCE(unlock, "mfence")
@@ -128,7 +149,7 @@ ck_pr_rfo(const void *m)
 		return v;					\
 	}
 
-CK_PR_FAS(ptr, void, void *, char, "xchgq")
+CK_PR_FAS(ptr, void, void *, uint64_t, "xchgq")
 
 #define CK_PR_FAS_S(S, T, I) CK_PR_FAS(S, T, T, T, I)
 
@@ -161,7 +182,7 @@ CK_PR_FAS_S(8,  uint8_t,  "xchgb")
 		return (r);					\
 	}
 
-CK_PR_LOAD(ptr, void, void *, char, "movq")
+CK_PR_LOAD(ptr, void, void *, uint64_t, "movq")
 
 #define CK_PR_LOAD_S(S, T, I) CK_PR_LOAD(S, T, T, T, I)
 
@@ -202,7 +223,7 @@ ck_pr_load_ptr_2(const void *t, void *v)
 
 #define CK_PR_LOAD_2(S, W, T)							\
 	CK_CC_INLINE static void						\
-	ck_pr_md_load_##S##_##W(const T t[2], T v[2])				\
+	ck_pr_md_load_##S##_##W(const T t[W], T v[W]) 				\
 	{									\
 		ck_pr_load_64_2((const uint64_t *)(const void *)t,		\
 				(uint64_t *)(void *)v);				\
@@ -243,7 +264,7 @@ CK_PR_LOAD_2(8, 16, uint8_t)
 		return;						\
 	}
 
-CK_PR_STORE_IMM(ptr, void, const void *, char, "movq", CK_CC_IMM_U32)
+CK_PR_STORE_IMM(ptr, void, const void *, uint64_t, "movq", CK_CC_IMM_U32)
 #ifndef CK_PR_DISABLE_DOUBLE
 CK_PR_STORE(double, double, double, double, "movq")
 #endif
@@ -277,7 +298,7 @@ CK_PR_STORE_S(8,  uint8_t, "movb", CK_CC_IMM_U32)
 		return (d);						\
 	}
 
-CK_PR_FAA(ptr, void, uintptr_t, char, "xaddq")
+CK_PR_FAA(ptr, void, uintptr_t, uint64_t, "xaddq")
 
 #define CK_PR_FAA_S(S, T, I) CK_PR_FAA(S, T, T, T, I)
 
@@ -311,22 +332,22 @@ CK_PR_FAA_S(8,  uint8_t,  "xaddb")
 	}
 
 #define CK_PR_UNARY_V(K, S, T, C, I)					\
-	CK_CC_INLINE static void					\
-	ck_pr_##K##_##S##_zero(T *target, bool *r)			\
+	CK_CC_INLINE static bool					\
+	ck_pr_##K##_##S##_is_zero(T *target)				\
 	{								\
+		bool ret;						\
 		__asm__ __volatile__(CK_PR_LOCK_PREFIX I " %0; setz %1"	\
 					: "+m" (*(C *)target),		\
-					  "=m" (*r)			\
+					  "=rm" (ret)			\
 					:				\
 					: "memory", "cc");		\
-		return;							\
+		return ret;						\
 	}
-
 
 #define CK_PR_UNARY_S(K, S, T, I) CK_PR_UNARY(K, S, T, T, I)
 
 #define CK_PR_GENERATE(K)				\
-	CK_PR_UNARY(K, ptr, void, char, #K "q") 	\
+	CK_PR_UNARY(K, ptr, void, uint64_t, #K "q") 	\
 	CK_PR_UNARY_S(K, char, char, #K "b")		\
 	CK_PR_UNARY_S(K, int, int, #K "l")		\
 	CK_PR_UNARY_S(K, uint, unsigned int, #K "l")	\
@@ -367,7 +388,7 @@ CK_PR_GENERATE(not)
 #define CK_PR_BINARY_S(K, S, T, I, O) CK_PR_BINARY(K, S, T, T, T, I, O)
 
 #define CK_PR_GENERATE(K)							\
-	CK_PR_BINARY(K, ptr, void, uintptr_t, char, #K "q", CK_CC_IMM_U32)	\
+	CK_PR_BINARY(K, ptr, void, uintptr_t, uint64_t, #K "q", CK_CC_IMM_U32)	\
 	CK_PR_BINARY_S(K, char, char, #K "b", CK_CC_IMM_S32)			\
 	CK_PR_BINARY_S(K, int, int, #K "l", CK_CC_IMM_S32)			\
 	CK_PR_BINARY_S(K, uint, unsigned int, #K "l", CK_CC_IMM_U32)		\
@@ -387,8 +408,38 @@ CK_PR_GENERATE(xor)
 #undef CK_PR_BINARY
 
 /*
- * Atomic compare and swap.
+ * Atomic compare and swap, with a variant that sets *v to the old value of target.
  */
+#ifdef __GCC_ASM_FLAG_OUTPUTS__
+#define CK_PR_CAS(S, M, T, C, I)						\
+	CK_CC_INLINE static bool						\
+	ck_pr_cas_##S(M *target, T compare, T set)				\
+	{									\
+		bool z;								\
+		__asm__ __volatile__(CK_PR_LOCK_PREFIX I " %3, %0"		\
+					: "+m"    (*(C *)target),		\
+					  "=@ccz" (z),				\
+					  /* RAX is clobbered by cmpxchg. */	\
+					  "+a"    (compare)			\
+					: "q"     (set)				\
+					: "memory", "cc");			\
+		return z;							\
+	}									\
+										\
+	CK_CC_INLINE static bool						\
+	ck_pr_cas_##S##_value(M *target, T compare, T set, M *v)		\
+	{									\
+		bool z;								\
+		__asm__ __volatile__(CK_PR_LOCK_PREFIX I " %3, %0;"		\
+					: "+m"    (*(C *)target),		\
+					  "=@ccz" (z),				\
+					  "+a"    (compare)			\
+					: "q"     (set)				\
+					: "memory", "cc");			\
+		*(T *)v = compare;						\
+		return z;							\
+	}
+#else
 #define CK_PR_CAS(S, M, T, C, I)						\
 	CK_CC_INLINE static bool						\
 	ck_pr_cas_##S(M *target, T compare, T set)				\
@@ -401,9 +452,25 @@ CK_PR_GENERATE(xor)
 					  "a"   (compare)			\
 					: "memory", "cc");			\
 		return z;							\
+	}									\
+										\
+	CK_CC_INLINE static bool						\
+	ck_pr_cas_##S##_value(M *target, T compare, T set, M *v)		\
+	{									\
+		bool z;								\
+		__asm__ __volatile__(CK_PR_LOCK_PREFIX I " %3, %0;"		\
+				     "setz %1;"					\
+					: "+m"  (*(C *)target),			\
+					  "=q"  (z),				\
+					  "+a"  (compare)			\
+					: "q"   (set)				\
+					: "memory", "cc");			\
+		*(T *)v = compare;						\
+		return z;							\
 	}
+#endif
 
-CK_PR_CAS(ptr, void, void *, char, "cmpxchgq")
+CK_PR_CAS(ptr, void, void *, uint64_t, "cmpxchgq")
 
 #define CK_PR_CAS_S(S, T, I) CK_PR_CAS(S, T, T, T, I)
 
@@ -420,45 +487,6 @@ CK_PR_CAS_S(8,  uint8_t,  "cmpxchgb")
 
 #undef CK_PR_CAS_S
 #undef CK_PR_CAS
-
-/*
- * Compare and swap, set *v to old value of target.
- */
-#define CK_PR_CAS_O(S, M, T, C, I, R)						\
-	CK_CC_INLINE static bool						\
-	ck_pr_cas_##S##_value(M *target, T compare, T set, M *v)		\
-	{									\
-		bool z;								\
-		__asm__ __volatile__(CK_PR_LOCK_PREFIX "cmpxchg" I " %3, %0;"	\
-				     "mov %% " R ", %2;"			\
-				     "setz %1;"					\
-					: "+m"  (*(C *)target),			\
-					  "=a"  (z),				\
-					  "=m"  (*(C *)v)			\
-					: "q"   (set),				\
-					  "a"   (compare)			\
-					: "memory", "cc");			\
-		return z;							\
-	}
-
-CK_PR_CAS_O(ptr, void, void *, char, "q", "rax")
-
-#define CK_PR_CAS_O_S(S, T, I, R)	\
-	CK_PR_CAS_O(S, T, T, T, I, R)
-
-CK_PR_CAS_O_S(char, char, "b", "al")
-CK_PR_CAS_O_S(int, int, "l", "eax")
-CK_PR_CAS_O_S(uint, unsigned int, "l", "eax")
-#ifndef CK_PR_DISABLE_DOUBLE
-CK_PR_CAS_O_S(double, double, "q", "rax")
-#endif
-CK_PR_CAS_O_S(64, uint64_t, "q", "rax")
-CK_PR_CAS_O_S(32, uint32_t, "l", "eax")
-CK_PR_CAS_O_S(16, uint16_t, "w", "ax")
-CK_PR_CAS_O_S(8,  uint8_t,  "b", "al")
-
-#undef CK_PR_CAS_O_S
-#undef CK_PR_CAS_O
 
 /*
  * Contrary to C-interface, alignment requirements are that of uint64_t[2].
@@ -566,12 +594,12 @@ CK_PR_CAS_V(8, 16, uint8_t)
 
 #define CK_PR_BT_S(K, S, T, I) CK_PR_BT(K, S, T, T, T, I)
 
-#define CK_PR_GENERATE(K)					\
-	CK_PR_BT(K, ptr, void, uint64_t, char, #K "q %2, %0")	\
-	CK_PR_BT_S(K, uint, unsigned int, #K "l %2, %0")	\
-	CK_PR_BT_S(K, int, int, #K "l %2, %0")			\
-	CK_PR_BT_S(K, 64, uint64_t, #K "q %2, %0")		\
-	CK_PR_BT_S(K, 32, uint32_t, #K "l %2, %0")		\
+#define CK_PR_GENERATE(K)						\
+	CK_PR_BT(K, ptr, void, uint64_t, uint64_t, #K "q %2, %0")	\
+	CK_PR_BT_S(K, uint, unsigned int, #K "l %2, %0")		\
+	CK_PR_BT_S(K, int, int, #K "l %2, %0")				\
+	CK_PR_BT_S(K, 64, uint64_t, #K "q %2, %0")			\
+	CK_PR_BT_S(K, 32, uint32_t, #K "l %2, %0")			\
 	CK_PR_BT_S(K, 16, uint16_t, #K "w %w2, %0")
 
 CK_PR_GENERATE(btc)

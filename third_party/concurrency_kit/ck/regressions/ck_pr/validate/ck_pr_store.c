@@ -67,7 +67,8 @@
 	{									\
 		uint##m##_t f = 0;						\
 		uint##w##_t j = (uint##w##_t)-1;				\
-		ck_pr_store_##w((uint##w##_t *)(void *)&f, j);			\
+		void *f_p = &f;							\
+		ck_pr_store_##w((uint##w##_t *)f_p, j);				\
 		if (f != j) {							\
 			printf("FAIL [%#" PRIx##m " != %#" PRIx##w "]\n", f, j);\
 			exit(EXIT_FAILURE);					\
@@ -119,6 +120,8 @@ rg_width(int m)
 int
 main(void)
 {
+	void *ptr;
+
 #if defined(CK_F_PR_STORE_DOUBLE) && defined(CK_F_PR_LOAD_DOUBLE)
 	double d;
 
@@ -145,6 +148,12 @@ main(void)
 #ifdef CK_F_PR_STORE_8
 	CK_PR_STORE_B(8);
 #endif
+	printf("ck_pr_store_ptr: ");
+	ck_pr_store_ptr(&ptr, (void *)(intptr_t)-1);
+	if (ptr != (void *)(intptr_t)(-1))
+		printf("Failed : %p != %p\n", ptr, (void *)(intptr_t)-1);
+	else
+		printf("SUCCESS\n");
 
 	return (0);
 }

@@ -40,6 +40,8 @@ The
 .Fn ck_epoch_synchronize 3
 function will block the caller until a grace period has been
 detected, according to the semantics of epoch reclamation.
+It is not safe to call this function on a record that is
+in an active section.
 Any objects requiring safe memory reclamation which are logically
 deleted are safe for physical deletion following a call to
 .Fn ck_epoch_synchronize 3 .
@@ -71,7 +73,7 @@ function(void)
 	ck_stack_entry_t *s;
 
 	record = malloc(sizeof *record);
-	ck_epoch_register(&epoch, record);
+	ck_epoch_register(&epoch, record, NULL);
 
 	/*
 	 * We are using an epoch section here to guarantee no

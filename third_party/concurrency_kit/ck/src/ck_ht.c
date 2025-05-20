@@ -30,9 +30,6 @@
 /*
  * This implementation borrows several techniques from Josh Dybnis's
  * nbds library which can be found at http://code.google.com/p/nbds
- *
- * This release currently only includes support for 64-bit platforms.
- * We can address 32-bit platforms in a future release.
  */
 #include <ck_cc.h>
 #include <ck_md.h>
@@ -171,7 +168,7 @@ ck_ht_map_create(struct ck_ht *table, CK_HT_TYPE entries)
 	map->deletions = 0;
 	map->probe_maximum = 0;
 	map->capacity = n_entries;
-	map->step = ck_internal_bsf_64(map->capacity);
+	map->step = ck_cc_ffsll(map->capacity);
 	map->mask = map->capacity - 1;
 	map->n_entries = 0;
 	map->entries = (struct ck_ht_entry *)(((uintptr_t)&map[1] + prefix +
